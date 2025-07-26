@@ -52,7 +52,7 @@ jobs:
 
       - name: Run Python Linting
         run: |
-          cd rds_schema_lambda && pylint --rcfile=../../.pylintrc *.py
+          cd rds_schema_lambda && pylint --rcfile=.pylintrc *.py
 
       - name: Run Tests
         run: |
