@@ -64,5 +64,20 @@ func main() {
 		Value: &infrastructureStack.RDSPostgresSchemaEnsureLambdaARN,
 	})
 
+	// Output API Gateway URL
+	awscdk.NewCfnOutput(infrastructureStack.Stack, jsii.String("APIGatewayURL"), &awscdk.CfnOutputProps{
+		Value: &infrastructureStack.APIGatewayURL,
+	})
+
+	// Output Cognito User Pool ID
+	awscdk.NewCfnOutput(infrastructureStack.Stack, jsii.String("CognitoUserPoolID"), &awscdk.CfnOutputProps{
+		Value: &infrastructureStack.CognitoUserPoolID,
+	})
+
+	// Output Cognito User Pool Client ID
+	awscdk.NewCfnOutput(infrastructureStack.Stack, jsii.String("CognitoUserPoolClientID"), &awscdk.CfnOutputProps{
+		Value: &infrastructureStack.CognitoUserPoolClientID,
+	})
+
 	app.Synth(nil)
 }

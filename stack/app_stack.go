@@ -743,7 +743,7 @@ func createAPIGatewayResources(resources *Resources, networking *NetworkingResou
 	// Create Application Load Balancer
 	loadBalancer := awselasticloadbalancingv2.NewApplicationLoadBalancer(resources.Stack, jsii.String("CodeRefactorALB"), &awselasticloadbalancingv2.ApplicationLoadBalancerProps{
 		Vpc:            networking.Vpc,
-		InternetFacing: jsii.Bool(false), // Internal ALB
+		InternetFacing: jsii.Bool(true), // Internet-facing ALB so API Gateway can reach it
 		VpcSubnets: &awsec2.SubnetSelection{
 			SubnetType: awsec2.SubnetType_PUBLIC, // Use public subnets for ALB
 		},
@@ -841,7 +841,7 @@ func createAPIGatewayResources(resources *Resources, networking *NetworkingResou
 		AuthorizerName:   jsii.String("code-refactor-authorizer"),
 	})
 
-	// Create API Gateway integration with Load Balancer (direct HTTP integration for now)
+	// Simple fix: use direct HTTP integration to internet-facing ALB
 	albURL := fmt.Sprintf("http://%s", *loadBalancer.LoadBalancerDnsName())
 	integration := awsapigateway.NewHttpIntegration(jsii.String(albURL), &awsapigateway.HttpIntegrationProps{
 		Proxy: jsii.Bool(true),

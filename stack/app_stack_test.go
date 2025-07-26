@@ -137,11 +137,11 @@ func TestAppStack_CreatesExpectedResources(t *testing.T) {
 		})
 
 		t.Run("creates Application Load Balancer", func(_ *testing.T) {
-			// We have 1 load balancer: ALB for ECS (dummy NLB removed for cost optimization)
+			// We have 1 load balancer: ALB for ECS (internet-facing for cost optimization vs VPC Link)
 			template.ResourceCountIs(jsii.String("AWS::ElasticLoadBalancingV2::LoadBalancer"), jsii.Number(1))
 			template.HasResourceProperties(jsii.String("AWS::ElasticLoadBalancingV2::LoadBalancer"), map[string]interface{}{
 				"Type":   "application",
-				"Scheme": "internal",
+				"Scheme": "internet-facing",
 			})
 		})
 
