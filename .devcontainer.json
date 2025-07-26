@@ -1,0 +1,16 @@
+{
+  "name": "Code Refactoring Infrastructure",
+  "image": "mcr.microsoft.com/devcontainers/go:dev-1.24",
+  "features": {
+    "ghcr.io/devcontainers/features/aws-cli:1": {},
+    "ghcr.io/devcontainers/features/git:1": {},
+    "ghcr.io/devcontainers/features/node:1": {},
+    "ghcr.io/devcontainers/features/python:1": {
+      "version": "3.12"
+    },
+    "ghcr.io/devcontainers/features/docker-in-docker:2": {},
+    "ghcr.io/devcontainers-extra/features/aws-cdk:2.0.16": {}
+  },
+  "onCreateCommand": "sudo usermod -aG docker ${USER}",
+  "postCreateCommand": "go mod tidy && pip install -r ./rds_schema_lambda/requirements.txt && pip install -r ./rds_schema_lambda/requirements_test.txt && pip install pylint"
+}

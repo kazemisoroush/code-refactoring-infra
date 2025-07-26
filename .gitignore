@@ -1,0 +1,24 @@
+# CDK context cache
+cdk.context.json
+
+# CDK output directory
+cdk.out/
+
+# IDE/editor settings
+.vscode/
+.idea/
+
+# OS generated files
+.DS_Store
+
+# Test cache
+*.test
+.vscode
+main_test.go
+code-refactoring-test/
+coverage.out
+.DS_Store
+__pycache__
+.pytest_cache
+code-refactoring-tool
+config.test

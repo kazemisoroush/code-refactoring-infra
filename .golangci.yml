@@ -1,0 +1,27 @@
+version: 2
+
+issues:
+  exclude-dirs:
+    - "fixtures"
+  max-issues-per-linter: 0
+  max-same-issues: 0
+
+linters-settings:
+  gocyclo:
+    min-complexity: 10
+  errcheck:
+    check-type-assertions: true
+    check-blank: true
+  staticcheck:
+    checks: all
+  unused:
+    checks: all
+
+linters:
+  enable:
+    - errcheck
+    - govet
+    - staticcheck
+    - unused
+    - revive
+    - gocyclo
