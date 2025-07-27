@@ -79,5 +79,10 @@ func main() {
 		Value: &infrastructureStack.CognitoUserPoolClientID,
 	})
 
+	// Output Cognito Hosted UI URL
+	awscdk.NewCfnOutput(infrastructureStack.Stack, jsii.String("CognitoHostedUIURL"), &awscdk.CfnOutputProps{
+		Value: &infrastructureStack.CognitoHostedUIURL,
+	})
+
 	app.Synth(nil)
 }

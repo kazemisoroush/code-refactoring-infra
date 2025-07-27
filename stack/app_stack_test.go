@@ -207,6 +207,13 @@ func TestAppStack_CreatesExpectedResources(t *testing.T) {
 			})
 		})
 
+		t.Run("creates Cognito User Pool Domain for Hosted UI", func(_ *testing.T) {
+			template.ResourceCountIs(jsii.String("AWS::Cognito::UserPoolDomain"), jsii.Number(1))
+			template.HasResourceProperties(jsii.String("AWS::Cognito::UserPoolDomain"), map[string]interface{}{
+				"Domain": assertions.Match_AnyValue(), // Domain is dynamically generated
+			})
+		})
+
 		t.Run("creates API Gateway Authorizer", func(_ *testing.T) {
 			template.ResourceCountIs(jsii.String("AWS::ApiGateway::Authorizer"), jsii.Number(1))
 			template.HasResourceProperties(jsii.String("AWS::ApiGateway::Authorizer"), map[string]interface{}{
@@ -217,10 +224,10 @@ func TestAppStack_CreatesExpectedResources(t *testing.T) {
 
 		t.Run("creates API Gateway resources with authorization", func(_ *testing.T) {
 			// Check that API resources require authorization
-			// We have: proxy resource, /health resource, and /swagger resource
-			template.ResourceCountIs(jsii.String("AWS::ApiGateway::Resource"), jsii.Number(3))
-			// We have methods from proxy resource (ANY method creates multiple HTTP methods) + health + swagger
-			template.ResourceCountIs(jsii.String("AWS::ApiGateway::Method"), jsii.Number(8))
+			// We have: proxy resource, /health resource, /swagger resource, and /auth resource
+			template.ResourceCountIs(jsii.String("AWS::ApiGateway::Resource"), jsii.Number(4))
+			// We have methods from proxy resource (ANY method creates multiple HTTP methods) + health + swagger + auth
+			template.ResourceCountIs(jsii.String("AWS::ApiGateway::Method"), jsii.Number(10))
 		})
 	})
 

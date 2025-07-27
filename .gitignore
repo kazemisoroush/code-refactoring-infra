@@ -22,3 +22,15 @@ __pycache__
 .pytest_cache
 code-refactoring-tool
 config.test
+code-refactoring-infra
+
+# Authentication tokens and temporary files
+auth-token.txt
+*.token
+.env.local
+
+# GitHub Actions artifacts and outputs
+infrastructure-outputs/
+app-env-vars.txt
+*.zip
+env-vars.txt

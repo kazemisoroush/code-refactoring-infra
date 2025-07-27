@@ -45,6 +45,7 @@ type AppStack struct {
 	APIGatewayURL                    string
 	CognitoUserPoolID                string
 	CognitoUserPoolClientID          string
+	CognitoHostedUIURL               string
 }
 
 // Resources holds the common resources that are shared across different components
@@ -102,8 +103,10 @@ type APIGatewayResources struct {
 type CognitoResources struct {
 	UserPool       awscognito.IUserPool
 	UserPoolClient awscognito.IUserPoolClient
+	UserPoolDomain awscognito.IUserPoolDomain
 	UserPoolID     string
 	ClientID       string
+	DomainURL      string
 }
 
 // NewAppStack creates a new CDK stack for the application.
@@ -157,6 +160,7 @@ func NewAppStack(scope constructs.Construct, id string, props *AppStackProps) *A
 		APIGatewayURL:                    apigateway.URL,
 		CognitoUserPoolID:                cognito.UserPoolID,
 		CognitoUserPoolClientID:          cognito.ClientID,
+		CognitoHostedUIURL:               fmt.Sprintf("https://%s.auth.%s.amazoncognito.com", cognito.DomainURL, resources.Region),
 	}
 }
 
@@ -730,11 +734,25 @@ func createCognitoResources(resources *Resources) *CognitoResources {
 	// Apply removal policy to User Pool Client for clean deletion
 	userPoolClient.ApplyRemovalPolicy(awscdk.RemovalPolicy_DESTROY)
 
+	// Create Cognito User Pool Domain for Hosted UI
+	userPoolDomain := awscognito.NewUserPoolDomain(resources.Stack, jsii.String("CodeRefactorUserPoolDomain"), &awscognito.UserPoolDomainProps{
+		UserPool: userPool,
+		CognitoDomain: &awscognito.CognitoDomainOptions{
+			DomainPrefix: jsii.String(fmt.Sprintf("code-refactor-%s", resources.Account)), // Must be globally unique
+		},
+	})
+	awscdk.Tags_Of(userPoolDomain).Add(jsii.String(DefaultResourceTagKey), jsii.String(DefaultResourceTagValue), nil)
+
+	// Apply removal policy to User Pool Domain for clean deletion
+	userPoolDomain.ApplyRemovalPolicy(awscdk.RemovalPolicy_DESTROY)
+
 	return &CognitoResources{
 		UserPool:       userPool,
 		UserPoolClient: userPoolClient,
+		UserPoolDomain: userPoolDomain,
 		UserPoolID:     *userPool.UserPoolId(),
 		ClientID:       *userPoolClient.UserPoolClientId(),
+		DomainURL:      *userPoolDomain.DomainName(),
 	}
 }
 
@@ -857,7 +875,7 @@ func createAPIGatewayResources(resources *Resources, networking *NetworkingResou
 		AnyMethod: jsii.Bool(true),
 	})
 
-	// Add public endpoints without authorization (health check, swagger docs)
+	// Add public endpoints without authorization (health check, swagger docs, auth endpoints)
 	healthResource := api.Root().AddResource(jsii.String("health"), nil)
 	healthResource.AddMethod(jsii.String("GET"), integration, &awsapigateway.MethodOptions{
 		AuthorizationType: awsapigateway.AuthorizationType_NONE,
@@ -865,6 +883,12 @@ func createAPIGatewayResources(resources *Resources, networking *NetworkingResou
 
 	docsResource := api.Root().AddResource(jsii.String("swagger"), nil)
 	docsResource.AddMethod(jsii.String("GET"), integration, &awsapigateway.MethodOptions{
+		AuthorizationType: awsapigateway.AuthorizationType_NONE,
+	})
+
+	// Add auth resource for authentication endpoints and documentation
+	authResource := api.Root().AddResource(jsii.String("auth"), nil)
+	authResource.AddMethod(jsii.String("GET"), integration, &awsapigateway.MethodOptions{
 		AuthorizationType: awsapigateway.AuthorizationType_NONE,
 	})
 
