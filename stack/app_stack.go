@@ -126,14 +126,17 @@ func NewAppStack(scope constructs.Construct, id string, props *AppStackProps) *A
 	storage := createStorageResources(resources)
 	database := createDatabaseResources(resources, networking)
 
-	// Create compute resources (ECS, Fargate, ECR)
-	compute := createComputeResources(resources, networking, database)
-
-	// Create API Gateway and authentication resources
+	// Create authentication resources first
 	cognito := createCognitoResources(resources)
-	apigateway := createAPIGatewayResources(resources, networking, compute, cognito, database)
 
+	// Create Bedrock resources before compute resources so they're available for environment variables
 	bedrock := createBedrockResources(resources, storage, database)
+
+	// Create compute resources (ECS, Fargate, ECR) - now has access to all required resources
+	compute := createComputeResources(resources, networking, database, storage, cognito, bedrock)
+
+	// Create API Gateway resources
+	apigateway := createAPIGatewayResources(resources, networking, compute, cognito, database)
 
 	// Create GitHub Actions IAM role for ECR access
 	// Note: OIDC provider is created manually and exists in the account
@@ -144,6 +147,37 @@ func NewAppStack(scope constructs.Construct, id string, props *AppStackProps) *A
 		Value:       compute.EcrRepo.RepositoryUri(),
 		Description: jsii.String("ECR Repository URI for the application container image"),
 		ExportName:  jsii.String("CodeRefactor-ECR-Repository-URI"),
+	})
+
+	// Add outputs for the missing environment variables
+	awscdk.NewCfnOutput(resources.Stack, jsii.String("BedrockKnowledgeBaseRoleARN"), &awscdk.CfnOutputProps{
+		Value:       bedrock.KnowledgeBaseRole.RoleArn(),
+		Description: jsii.String("Bedrock Knowledge Base Service Role ARN"),
+		ExportName:  jsii.String("CodeRefactor-Bedrock-KnowledgeBase-Role-ARN"),
+	})
+
+	awscdk.NewCfnOutput(resources.Stack, jsii.String("BedrockAgentRoleARN"), &awscdk.CfnOutputProps{
+		Value:       bedrock.AgentRole.RoleArn(),
+		Description: jsii.String("Bedrock Agent Service Role ARN"),
+		ExportName:  jsii.String("CodeRefactor-Bedrock-Agent-Role-ARN"),
+	})
+
+	awscdk.NewCfnOutput(resources.Stack, jsii.String("S3BucketName"), &awscdk.CfnOutputProps{
+		Value:       jsii.String(storage.Name),
+		Description: jsii.String("S3 Bucket Name for Bedrock Knowledge Base"),
+		ExportName:  jsii.String("CodeRefactor-S3-Bucket-Name"),
+	})
+
+	awscdk.NewCfnOutput(resources.Stack, jsii.String("CognitoUserPoolId"), &awscdk.CfnOutputProps{
+		Value:       jsii.String(cognito.UserPoolID),
+		Description: jsii.String("Cognito User Pool ID"),
+		ExportName:  jsii.String("CodeRefactor-Cognito-UserPool-ID"),
+	})
+
+	awscdk.NewCfnOutput(resources.Stack, jsii.String("CognitoClientId"), &awscdk.CfnOutputProps{
+		Value:       jsii.String(cognito.ClientID),
+		Description: jsii.String("Cognito User Pool Client ID"),
+		ExportName:  jsii.String("CodeRefactor-Cognito-Client-ID"),
 	})
 
 	return &AppStack{
@@ -546,7 +580,7 @@ func createGitHubActionsRole(resources *Resources) awsiam.IRole {
 }
 
 // createComputeResources creates ECS, Fargate, and ECR resources
-func createComputeResources(resources *Resources, networking *NetworkingResources, database *DatabaseResources) *ComputeResources {
+func createComputeResources(resources *Resources, networking *NetworkingResources, database *DatabaseResources, storage *StorageResources, cognito *CognitoResources, bedrock *BedrockResources) *ComputeResources {
 	// ECS Cluster
 	cluster := awsecs.NewCluster(resources.Stack, jsii.String("RefactorCluster"), &awsecs.ClusterProps{
 		Vpc: networking.Vpc,
@@ -629,18 +663,25 @@ func createComputeResources(resources *Resources, networking *NetworkingResource
 			"GIT_AUTHOR": jsii.String("CodeRefactorBot"),
 			"GIT_EMAIL":  jsii.String("bot@code-refactor.example.com"),
 
-			// AWS Resource ARNs (will be populated from CloudFormation outputs)
-			"KNOWLEDGE_BASE_SERVICE_ROLE_ARN":       jsii.String(""),
-			"AGENT_SERVICE_ROLE_ARN":                jsii.String(""),
-			"S3_BUCKET_NAME":                        jsii.String(""),
-			"RDS_POSTGRES_CREDENTIALS_SECRET_ARN":   database.CredentialsSecret.SecretArn(),
-			"RDS_POSTGRES_INSTANCE_ARN":             database.Cluster.ClusterArn(),
-			"RDS_POSTGRES_SCHEMA_ENSURE_LAMBDA_ARN": database.MigrationLambda.FunctionArn(),
-			"RDS_POSTGRES_DATABASE_NAME":            jsii.String(RDSPostgresDatabaseName),
+			// AI Configuration - Add these new variables
+			"AI_DEFAULT_PROVIDER": jsii.String("bedrock"),
+			"AI_LOCAL_ENABLED":    jsii.String("false"),
 
-			// Cognito configuration (will be populated later)
-			"COGNITO_USER_POOL_ID": jsii.String(""),
-			"COGNITO_CLIENT_ID":    jsii.String(""),
+			// Bedrock RDS Configuration - Fix the naming to match your Go app's envconfig tags
+			"AI_BEDROCK_RDS_POSTGRES_CREDENTIALS_SECRET_ARN":   database.CredentialsSecret.SecretArn(),
+			"AI_BEDROCK_RDS_POSTGRES_INSTANCE_ARN":             database.Cluster.ClusterArn(),
+			"AI_BEDROCK_RDS_POSTGRES_DATABASE_NAME":            jsii.String(RDSPostgresDatabaseName),
+			"AI_BEDROCK_RDS_POSTGRES_SCHEMA_ENSURE_LAMBDA_ARN": database.MigrationLambda.FunctionArn(),
+			"AI_BEDROCK_REGION":                                jsii.String(resources.Region),
+
+			// Bedrock AI Configuration - Populate with actual values from created resources
+			"AI_BEDROCK_KNOWLEDGE_BASE_SERVICE_ROLE_ARN": bedrock.KnowledgeBaseRole.RoleArn(),
+			"AI_BEDROCK_AGENT_SERVICE_ROLE_ARN":          bedrock.AgentRole.RoleArn(),
+			"AI_BEDROCK_S3_BUCKET_NAME":                  jsii.String(storage.Name),
+
+			// Cognito configuration - Populate with actual values from created resources
+			"COGNITO_USER_POOL_ID": jsii.String(cognito.UserPoolID),
+			"COGNITO_CLIENT_ID":    jsii.String(cognito.ClientID),
 			"COGNITO_REGION":       jsii.String(resources.Region),
 
 			// Metrics configuration

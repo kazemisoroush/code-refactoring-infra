@@ -2,6 +2,8 @@
 test:
 	@echo "Running infrastructure tests..."
 	@cd stack && go test -v ./...
+	@echo "Installing Python test dependencies..."
+	@cd rds_schema_lambda && pip install -r requirements_test.txt
 	@cd rds_schema_lambda && pytest .
 	@echo "Infrastructure tests passed."
 
