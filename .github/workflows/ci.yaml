@@ -102,68 +102,34 @@ jobs:
       - name: Deploy Infrastructure
         run: make deploy
 
-      - name: Setup Default Authentication User
+      - name: Verify Infrastructure Deployment
         env:
-          DEFAULT_USER_EMAIL: ${{ secrets.DEFAULT_USER_EMAIL }}
-          DEFAULT_USER_PASSWORD: ${{ secrets.DEFAULT_USER_PASSWORD }}
           AWS_REGION: ${{ secrets.AWS_REGION }}
         run: |
-          echo "🔧 Setting up default authentication user..."
+          echo "🔧 Verifying infrastructure deployment..."
           
           # Get stack outputs
           USER_POOL_ID=$(aws cloudformation describe-stacks --stack-name CodeRefactorInfra --query 'Stacks[0].Outputs[?OutputKey==`CognitoUserPoolID`].OutputValue' --output text)
           CLIENT_ID=$(aws cloudformation describe-stacks --stack-name CodeRefactorInfra --query 'Stacks[0].Outputs[?OutputKey==`CognitoUserPoolClientID`].OutputValue' --output text)
           API_URL=$(aws cloudformation describe-stacks --stack-name CodeRefactorInfra --query 'Stacks[0].Outputs[?OutputKey==`APIGatewayURL`].OutputValue' --output text)
           
-          echo "✅ Configuration loaded:"
+          echo "✅ Infrastructure deployed successfully:"
           echo "   User Pool ID: $USER_POOL_ID"
           echo "   Client ID: $CLIENT_ID"
           echo "   API URL: $API_URL"
           
-          # Create default user (use GitHub Secrets for credentials)
-          EMAIL="${DEFAULT_USER_EMAIL:-admin@code-refactor.dev}"
-          PASSWORD="${DEFAULT_USER_PASSWORD:-CodeRefactor123!}"
-          
-          echo "👤 Creating default user: $EMAIL"
-          
-          # Create user (ignore error if already exists)
-          aws cognito-idp admin-create-user \
-            --user-pool-id $USER_POOL_ID \
-            --username $EMAIL \
-            --temporary-password $PASSWORD \
-            --message-action SUPPRESS \
-            --user-attributes Name=email,Value=$EMAIL Name=email_verified,Value=true || echo "User might already exist"
-          
-          # Set permanent password
-          aws cognito-idp admin-set-user-password \
-            --user-pool-id $USER_POOL_ID \
-            --username $EMAIL \
-            --password $PASSWORD \
-            --permanent
-          
-          # Test authentication
-          echo "🧪 Testing authentication..."
-          TOKEN_RESPONSE=$(aws cognito-idp admin-initiate-auth \
-            --user-pool-id $USER_POOL_ID \
-            --client-id $CLIENT_ID \
-            --auth-flow ADMIN_NO_SRP_AUTH \
-            --auth-parameters USERNAME=$EMAIL,PASSWORD=$PASSWORD)
-          
-          ID_TOKEN=$(echo $TOKEN_RESPONSE | jq -r '.AuthenticationResult.IdToken')
-          
-          # Test API endpoint
+          # Test API endpoint (health check should be publicly accessible)
           HEALTH_CHECK=$(curl -s -o /dev/null -w "%{http_code}" $API_URL/health)
           echo "Health check status: $HEALTH_CHECK"
           
           if [ "$HEALTH_CHECK" = "200" ]; then
-            echo "✅ API is accessible and authentication is configured!"
+            echo "✅ API is accessible!"
           else
             echo "⚠️ API might not be fully ready yet (status: $HEALTH_CHECK)"
           fi
           
-          echo "🎉 Default user setup complete!"
-          echo "📧 Email: $EMAIL"
-          echo "🔑 Password: [HIDDEN]"
+          echo "🎉 Infrastructure verification complete!"
+          echo "� Users can now be created manually via AWS Cognito Console or CLI"
 
       - name: Store Infrastructure Outputs
         run: |
