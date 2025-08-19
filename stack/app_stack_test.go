@@ -43,7 +43,8 @@ func TestAppStack_CreatesExpectedResources(t *testing.T) {
 	// Test storage infrastructure
 	t.Run("Storage", func(t *testing.T) {
 		t.Run("creates S3 bucket with security configurations", func(_ *testing.T) {
-			template.ResourceCountIs(jsii.String("AWS::S3::Bucket"), jsii.Number(1))
+			// We now have 2 S3 buckets: one for backend storage and one for frontend
+			template.ResourceCountIs(jsii.String("AWS::S3::Bucket"), jsii.Number(2))
 			template.HasResourceProperties(jsii.String("AWS::S3::Bucket"), map[string]interface{}{
 				"VersioningConfiguration": map[string]interface{}{
 					"Status": "Enabled",
@@ -231,6 +232,41 @@ func TestAppStack_CreatesExpectedResources(t *testing.T) {
 		})
 	})
 
+	// Test Frontend infrastructure
+	t.Run("Frontend", func(t *testing.T) {
+		t.Run("creates S3 bucket for frontend hosting", func(_ *testing.T) {
+			// Frontend bucket should have website configuration
+			template.HasResourceProperties(jsii.String("AWS::S3::Bucket"), map[string]interface{}{
+				"WebsiteConfiguration": map[string]interface{}{
+					"IndexDocument": "index.html",
+					"ErrorDocument": "index.html",
+				},
+			})
+		})
+
+		t.Run("creates CloudFront distribution", func(_ *testing.T) {
+			template.ResourceCountIs(jsii.String("AWS::CloudFront::Distribution"), jsii.Number(1))
+			template.HasResourceProperties(jsii.String("AWS::CloudFront::Distribution"), map[string]interface{}{
+				"DistributionConfig": map[string]interface{}{
+					"DefaultRootObject": "index.html",
+					"Enabled":           true,
+					"IPV6Enabled":       true,
+					"PriceClass":        "PriceClass_100",
+				},
+			})
+		})
+
+		t.Run("creates CloudFront related resources", func(_ *testing.T) {
+			// CDK might create OriginAccessIdentity implicitly
+			// Let's just check that CloudFront distribution has origins configured
+			template.HasResourceProperties(jsii.String("AWS::CloudFront::Distribution"), map[string]interface{}{
+				"DistributionConfig": map[string]interface{}{
+					"Origins": assertions.Match_AnyValue(),
+				},
+			})
+		})
+	})
+
 	// Test IAM and security
 	t.Run("IAM and Security", func(t *testing.T) {
 		t.Run("creates appropriate number of IAM roles", func(_ *testing.T) {
@@ -358,6 +394,16 @@ func TestAppStack_ExposesCorrectOutputs(t *testing.T) {
 		}
 		if stack.CognitoUserPoolClientID == "" {
 			t.Error("CognitoUserPoolClientID should not be empty")
+		}
+		// Frontend properties
+		if stack.FrontendBucketName == "" {
+			t.Error("FrontendBucketName should not be empty")
+		}
+		if stack.CloudFrontDistributionID == "" {
+			t.Error("CloudFrontDistributionID should not be empty")
+		}
+		if stack.CloudFrontDistributionDomainName == "" {
+			t.Error("CloudFrontDistributionDomainName should not be empty")
 		}
 	})
 }

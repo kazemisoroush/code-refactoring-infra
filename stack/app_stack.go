@@ -8,6 +8,8 @@ import (
 
 	"github.com/aws/aws-cdk-go/awscdk/v2"
 	"github.com/aws/aws-cdk-go/awscdk/v2/awsapigateway"
+	"github.com/aws/aws-cdk-go/awscdk/v2/awscloudfront"
+	"github.com/aws/aws-cdk-go/awscdk/v2/awscloudfrontorigins"
 	"github.com/aws/aws-cdk-go/awscdk/v2/awscognito"
 	"github.com/aws/aws-cdk-go/awscdk/v2/awsec2"
 	"github.com/aws/aws-cdk-go/awscdk/v2/awsecr"
@@ -46,6 +48,10 @@ type AppStack struct {
 	CognitoUserPoolID                string
 	CognitoUserPoolClientID          string
 	CognitoHostedUIURL               string
+	// Frontend resources
+	FrontendBucketName               string
+	CloudFrontDistributionID         string
+	CloudFrontDistributionDomainName string
 }
 
 // Resources holds the common resources that are shared across different components
@@ -109,6 +115,15 @@ type CognitoResources struct {
 	DomainURL      string
 }
 
+// FrontendResources holds S3 bucket and CloudFront distribution for frontend hosting
+type FrontendResources struct {
+	Bucket                 awss3.IBucket
+	BucketName             string
+	CloudFrontDistribution awscloudfront.IDistribution
+	DistributionID         string
+	DistributionDomainName string
+}
+
 // NewAppStack creates a new CDK stack for the application.
 func NewAppStack(scope constructs.Construct, id string, props *AppStackProps) *AppStack {
 	stack := awscdk.NewStack(scope, &id, &props.StackProps)
@@ -138,9 +153,12 @@ func NewAppStack(scope constructs.Construct, id string, props *AppStackProps) *A
 	// Create API Gateway resources
 	apigateway := createAPIGatewayResources(resources, networking, compute, cognito, database)
 
-	// Create GitHub Actions IAM role for ECR access
+	// Create frontend resources (S3 + CloudFront)
+	frontend := createFrontendResources(resources)
+
+	// Create GitHub Actions IAM role for ECR and S3 access
 	// Note: OIDC provider is created manually and exists in the account
-	githubRole := createGitHubActionsRole(resources)
+	githubRole := createGitHubActionsRole(resources, frontend)
 
 	// Create CloudFormation outputs
 	awscdk.NewCfnOutput(resources.Stack, jsii.String("ECRRepositoryURI"), &awscdk.CfnOutputProps{
@@ -180,6 +198,25 @@ func NewAppStack(scope constructs.Construct, id string, props *AppStackProps) *A
 		ExportName:  jsii.String("CodeRefactor-Cognito-Client-ID"),
 	})
 
+	// Frontend outputs
+	awscdk.NewCfnOutput(resources.Stack, jsii.String("FrontendBucketName"), &awscdk.CfnOutputProps{
+		Value:       jsii.String(frontend.BucketName),
+		Description: jsii.String("S3 Bucket Name for Frontend Hosting"),
+		ExportName:  jsii.String("CodeRefactor-Frontend-Bucket-Name"),
+	})
+
+	awscdk.NewCfnOutput(resources.Stack, jsii.String("CloudFrontDistributionID"), &awscdk.CfnOutputProps{
+		Value:       jsii.String(frontend.DistributionID),
+		Description: jsii.String("CloudFront Distribution ID for Frontend"),
+		ExportName:  jsii.String("CodeRefactor-CloudFront-Distribution-ID"),
+	})
+
+	awscdk.NewCfnOutput(resources.Stack, jsii.String("CloudFrontDistributionDomainName"), &awscdk.CfnOutputProps{
+		Value:       jsii.String(frontend.DistributionDomainName),
+		Description: jsii.String("CloudFront Distribution Domain Name for Frontend"),
+		ExportName:  jsii.String("CodeRefactor-CloudFront-Domain-Name"),
+	})
+
 	return &AppStack{
 		Stack:                            stack,
 		BedrockKnowledgeBaseRole:         bedrock.KnowledgeBaseRole.RoleArn(),
@@ -195,6 +232,10 @@ func NewAppStack(scope constructs.Construct, id string, props *AppStackProps) *A
 		CognitoUserPoolID:                cognito.UserPoolID,
 		CognitoUserPoolClientID:          cognito.ClientID,
 		CognitoHostedUIURL:               fmt.Sprintf("https://%s.auth.%s.amazoncognito.com", cognito.DomainURL, resources.Region),
+		// Frontend resources
+		FrontendBucketName:               frontend.BucketName,
+		CloudFrontDistributionID:         frontend.DistributionID,
+		CloudFrontDistributionDomainName: frontend.DistributionDomainName,
 	}
 }
 
@@ -534,10 +575,10 @@ func createBedrockAgentRole(resources *Resources) awsiam.IRole {
 	return role
 }
 
-// createGitHubActionsRole creates IAM role for GitHub Actions to push to ECR
-func createGitHubActionsRole(resources *Resources) awsiam.IRole {
-	role := awsiam.NewRole(resources.Stack, jsii.String("GitHubActionsECRRole"), &awsiam.RoleProps{
-		RoleName: jsii.String("CodeRefactor-GitHubActions-ECR-Role"), // Fixed role name
+// createGitHubActionsRole creates IAM role for GitHub Actions to push to ECR and deploy frontend
+func createGitHubActionsRole(resources *Resources, frontend *FrontendResources) awsiam.IRole {
+	role := awsiam.NewRole(resources.Stack, jsii.String("GitHubActionsRole"), &awsiam.RoleProps{
+		RoleName: jsii.String("CodeRefactor-GitHubActions-Role"), // Updated role name
 		AssumedBy: awsiam.NewWebIdentityPrincipal(
 			jsii.String(fmt.Sprintf("arn:aws:iam::%s:oidc-provider/token.actions.githubusercontent.com", resources.Account)),
 			&map[string]interface{}{
@@ -565,6 +606,37 @@ func createGitHubActionsRole(resources *Resources) awsiam.IRole {
 						},
 						Resources: &[]*string{
 							jsii.String("*"),
+						},
+					}),
+				},
+			}),
+			"S3FrontendDeployPolicy": awsiam.NewPolicyDocument(&awsiam.PolicyDocumentProps{
+				Statements: &[]awsiam.PolicyStatement{
+					awsiam.NewPolicyStatement(&awsiam.PolicyStatementProps{
+						Actions: &[]*string{
+							jsii.String("s3:GetObject"),
+							jsii.String("s3:PutObject"),
+							jsii.String("s3:DeleteObject"),
+							jsii.String("s3:ListBucket"),
+							jsii.String("s3:GetBucketLocation"),
+						},
+						Resources: &[]*string{
+							frontend.Bucket.BucketArn(),
+							jsii.String(fmt.Sprintf("%s/*", *frontend.Bucket.BucketArn())),
+						},
+					}),
+				},
+			}),
+			"CloudFrontInvalidationPolicy": awsiam.NewPolicyDocument(&awsiam.PolicyDocumentProps{
+				Statements: &[]awsiam.PolicyStatement{
+					awsiam.NewPolicyStatement(&awsiam.PolicyStatementProps{
+						Actions: &[]*string{
+							jsii.String("cloudfront:CreateInvalidation"),
+							jsii.String("cloudfront:GetInvalidation"),
+							jsii.String("cloudfront:ListInvalidations"),
+						},
+						Resources: &[]*string{
+							jsii.String(fmt.Sprintf("arn:aws:cloudfront::%s:distribution/%s", resources.Account, frontend.DistributionID)),
 						},
 					}),
 				},
@@ -937,6 +1009,81 @@ func createAPIGatewayResources(resources *Resources, networking *NetworkingResou
 		RestAPI:      api,
 		LoadBalancer: loadBalancer,
 		URL:          *api.Url(),
+	}
+}
+
+// createFrontendResources creates S3 bucket and CloudFront distribution for React app hosting
+func createFrontendResources(resources *Resources) *FrontendResources {
+	// Create S3 bucket for frontend hosting
+	frontendBucketName := fmt.Sprintf("code-refactor-frontend-%s-%s", resources.Account, resources.Region)
+	frontendBucket := awss3.NewBucket(resources.Stack, jsii.String("FrontendBucket"), &awss3.BucketProps{
+		BucketName:        jsii.String(frontendBucketName),
+		RemovalPolicy:     awscdk.RemovalPolicy_DESTROY,
+		AutoDeleteObjects: jsii.Bool(true),
+		// Enable static website hosting
+		WebsiteIndexDocument: jsii.String("index.html"),
+		WebsiteErrorDocument: jsii.String("index.html"), // For SPA routing
+		// Block public access at bucket level - CloudFront will access via OAI
+		BlockPublicAccess: awss3.BlockPublicAccess_BLOCK_ALL(),
+	})
+	awscdk.Tags_Of(frontendBucket).Add(jsii.String(DefaultResourceTagKey), jsii.String(DefaultResourceTagValue), nil)
+
+	// Create Origin Access Identity for CloudFront to access S3
+	originAccessIdentity := awscloudfront.NewOriginAccessIdentity(resources.Stack, jsii.String("FrontendOAI"), &awscloudfront.OriginAccessIdentityProps{
+		Comment: jsii.String("OAI for Code Refactor Frontend"),
+	})
+
+	// Grant CloudFront OAI read access to the bucket
+	frontendBucket.GrantRead(originAccessIdentity.GrantPrincipal(), jsii.String("*"))
+
+	// Create CloudFront distribution
+	distribution := awscloudfront.NewDistribution(resources.Stack, jsii.String("FrontendDistribution"), &awscloudfront.DistributionProps{
+		DefaultBehavior: &awscloudfront.BehaviorOptions{
+			// TODO: Replace with S3BucketOrigin when available in CDK version
+			//nolint:staticcheck // S3Origin is deprecated but S3BucketOrigin not available in this CDK version
+			Origin: awscloudfrontorigins.NewS3Origin(frontendBucket, &awscloudfrontorigins.S3OriginProps{
+				OriginAccessIdentity: originAccessIdentity,
+			}),
+			ViewerProtocolPolicy: awscloudfront.ViewerProtocolPolicy_REDIRECT_TO_HTTPS,
+			AllowedMethods:       awscloudfront.AllowedMethods_ALLOW_GET_HEAD(),
+			CachedMethods:        awscloudfront.CachedMethods_CACHE_GET_HEAD(),
+			Compress:             jsii.Bool(true),
+		},
+		// Configure for SPA (Single Page Application)
+		DefaultRootObject: jsii.String("index.html"),
+		ErrorResponses: &[]*awscloudfront.ErrorResponse{
+			{
+				HttpStatus:         jsii.Number(404),
+				ResponseHttpStatus: jsii.Number(200),
+				ResponsePagePath:   jsii.String("/index.html"),
+				Ttl:                awscdk.Duration_Minutes(jsii.Number(5)),
+			},
+			{
+				HttpStatus:         jsii.Number(403),
+				ResponseHttpStatus: jsii.Number(200),
+				ResponsePagePath:   jsii.String("/index.html"),
+				Ttl:                awscdk.Duration_Minutes(jsii.Number(5)),
+			},
+		},
+		Comment: jsii.String("Code Refactor Frontend Distribution"),
+		// Enable for better performance
+		EnableIpv6: jsii.Bool(true),
+		// Price class for cost optimization (use all edge locations for production)
+		PriceClass: awscloudfront.PriceClass_PRICE_CLASS_100,
+	})
+	awscdk.Tags_Of(distribution).Add(jsii.String(DefaultResourceTagKey), jsii.String(DefaultResourceTagValue), nil)
+
+	// Apply removal policies for clean deletion
+	frontendBucket.ApplyRemovalPolicy(awscdk.RemovalPolicy_DESTROY)
+	distribution.ApplyRemovalPolicy(awscdk.RemovalPolicy_DESTROY)
+	originAccessIdentity.ApplyRemovalPolicy(awscdk.RemovalPolicy_DESTROY)
+
+	return &FrontendResources{
+		Bucket:                 frontendBucket,
+		BucketName:             frontendBucketName,
+		CloudFrontDistribution: distribution,
+		DistributionID:         *distribution.DistributionId(),
+		DistributionDomainName: *distribution.DistributionDomainName(),
 	}
 }
 
