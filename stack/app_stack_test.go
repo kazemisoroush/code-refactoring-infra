@@ -248,11 +248,13 @@ func TestAppStack_CreatesExpectedResources(t *testing.T) {
 	// Test Frontend infrastructure
 	t.Run("Frontend", func(t *testing.T) {
 		t.Run("creates S3 bucket for frontend hosting", func(_ *testing.T) {
-			// Frontend bucket should have website configuration
+			// Frontend bucket should have public access blocked (for OAI)
 			template.HasResourceProperties(jsii.String("AWS::S3::Bucket"), map[string]interface{}{
-				"WebsiteConfiguration": map[string]interface{}{
-					"IndexDocument": "index.html",
-					"ErrorDocument": "index.html",
+				"PublicAccessBlockConfiguration": map[string]interface{}{
+					"BlockPublicAcls":       true,
+					"BlockPublicPolicy":     true,
+					"IgnorePublicAcls":      true,
+					"RestrictPublicBuckets": true,
 				},
 			})
 		})
