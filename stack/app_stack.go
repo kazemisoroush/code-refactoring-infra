@@ -1092,9 +1092,7 @@ func createFrontendResources(resources *Resources) *FrontendResources {
 		BucketName:        jsii.String(frontendBucketName),
 		RemovalPolicy:     awscdk.RemovalPolicy_DESTROY,
 		AutoDeleteObjects: jsii.Bool(true),
-		// Enable static website hosting
-		WebsiteIndexDocument: jsii.String("index.html"),
-		WebsiteErrorDocument: jsii.String("index.html"), // For SPA routing
+		// Note: Not enabling website hosting since we use CloudFront with OAI
 		// Block public access at bucket level - CloudFront will access via OAI
 		BlockPublicAccess: awss3.BlockPublicAccess_BLOCK_ALL(),
 	})
