@@ -19,24 +19,9 @@ func main() {
 		},
 	})
 
-	// Output BedrockKnowledgeBaseRoleArn
-	awscdk.NewCfnOutput(infrastructureStack.Stack, jsii.String("BedrockKnowledgeBaseRoleArn"), &awscdk.CfnOutputProps{
-		Value: infrastructureStack.BedrockKnowledgeBaseRole,
-	})
-
-	// Output BedrockAgentRoleArn
-	awscdk.NewCfnOutput(infrastructureStack.Stack, jsii.String("BedrockAgentRoleArn"), &awscdk.CfnOutputProps{
-		Value: infrastructureStack.BedrockAgentRole,
-	})
-
 	// Output GitHubActionsRoleARN
 	awscdk.NewCfnOutput(infrastructureStack.Stack, jsii.String("GitHubActionsRoleARN"), &awscdk.CfnOutputProps{
 		Value: infrastructureStack.GitHubActionsRoleARN,
-	})
-
-	// Output BucketName
-	awscdk.NewCfnOutput(infrastructureStack.Stack, jsii.String("BucketName"), &awscdk.CfnOutputProps{
-		Value: &infrastructureStack.BucketName,
 	})
 
 	// Output Account
@@ -49,39 +34,9 @@ func main() {
 		Value: &infrastructureStack.Region,
 	})
 
-	// Output RDSPostgresClusterARN
-	awscdk.NewCfnOutput(infrastructureStack.Stack, jsii.String("RDSPostgresInstanceARN"), &awscdk.CfnOutputProps{
-		Value: &infrastructureStack.RDSPostgresClusterARN,
-	})
-
-	// Output RDSPostgresCredentialsSecretARN
-	awscdk.NewCfnOutput(infrastructureStack.Stack, jsii.String("RDSPostgresCredentialsSecretARN"), &awscdk.CfnOutputProps{
-		Value: &infrastructureStack.RDSPostgresCredentialsSecretARN,
-	})
-
 	// Output RDS Postgres Schema Ensure Lambda ARN
 	awscdk.NewCfnOutput(infrastructureStack.Stack, jsii.String("RDSPostgresSchemaEnsureLambdaARN"), &awscdk.CfnOutputProps{
 		Value: &infrastructureStack.RDSPostgresSchemaEnsureLambdaARN,
-	})
-
-	// Output API Gateway URL
-	awscdk.NewCfnOutput(infrastructureStack.Stack, jsii.String("APIGatewayURL"), &awscdk.CfnOutputProps{
-		Value: &infrastructureStack.APIGatewayURL,
-	})
-
-	// Output Cognito User Pool ID
-	awscdk.NewCfnOutput(infrastructureStack.Stack, jsii.String("CognitoUserPoolID"), &awscdk.CfnOutputProps{
-		Value: &infrastructureStack.CognitoUserPoolID,
-	})
-
-	// Output Cognito User Pool Client ID
-	awscdk.NewCfnOutput(infrastructureStack.Stack, jsii.String("CognitoUserPoolClientID"), &awscdk.CfnOutputProps{
-		Value: &infrastructureStack.CognitoUserPoolClientID,
-	})
-
-	// Output Cognito Hosted UI URL
-	awscdk.NewCfnOutput(infrastructureStack.Stack, jsii.String("CognitoHostedUIURL"), &awscdk.CfnOutputProps{
-		Value: &infrastructureStack.CognitoHostedUIURL,
 	})
 
 	app.Synth(nil)

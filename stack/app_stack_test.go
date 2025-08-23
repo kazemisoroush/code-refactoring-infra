@@ -77,9 +77,22 @@ func TestAppStack_CreatesExpectedResources(t *testing.T) {
 		})
 
 		t.Run("creates Secrets Manager secret for DB credentials", func(_ *testing.T) {
-			template.ResourceCountIs(jsii.String("AWS::SecretsManager::Secret"), jsii.Number(1))
+			// We now have 3 secrets: RDS credentials, backend secrets, frontend secrets
+			template.ResourceCountIs(jsii.String("AWS::SecretsManager::Secret"), jsii.Number(3))
+
+			// Test the RDS credentials secret specifically
 			template.HasResourceProperties(jsii.String("AWS::SecretsManager::Secret"), map[string]interface{}{
 				"Name": "code-refactor-db-secret",
+			})
+
+			// Test backend secrets
+			template.HasResourceProperties(jsii.String("AWS::SecretsManager::Secret"), map[string]interface{}{
+				"Name": "/code-refactor/backend/secrets",
+			})
+
+			// Test frontend secrets
+			template.HasResourceProperties(jsii.String("AWS::SecretsManager::Secret"), map[string]interface{}{
+				"Name": "/code-refactor/frontend/secrets",
 			})
 		})
 

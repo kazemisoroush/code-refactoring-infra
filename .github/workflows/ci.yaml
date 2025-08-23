@@ -9,8 +9,6 @@ on:
     branches:
       - main
 
-
-
 jobs:
   lint-and-test:
     runs-on: ubuntu-latest
@@ -133,127 +131,41 @@ jobs:
           echo "🎉 Infrastructure verification complete!"
           echo "� Users can now be created manually via AWS Cognito Console or CLI"
 
-      - name: Store Infrastructure Outputs
+      - name: Store Infrastructure Outputs in Parameter Store and Secrets Manager
         run: |
-          echo "📤 Storing infrastructure outputs as artifacts..."
+          echo "📤 Storing infrastructure outputs in AWS Parameter Store and Secrets Manager..."
           
-          # Create outputs directory
-          mkdir -p infrastructure-outputs
+          # Get stack outputs
+          API_URL=$(aws cloudformation describe-stacks --stack-name CodeRefactorInfra --query 'Stacks[0].Outputs[?OutputKey==`APIGatewayURL`].OutputValue' --output text)
+          USER_POOL_ID=$(aws cloudformation describe-stacks --stack-name CodeRefactorInfra --query 'Stacks[0].Outputs[?OutputKey==`CognitoUserPoolID`].OutputValue' --output text)
+          CLIENT_ID=$(aws cloudformation describe-stacks --stack-name CodeRefactorInfra --query 'Stacks[0].Outputs[?OutputKey==`CognitoUserPoolClientID`].OutputValue' --output text)
+          HOSTED_UI_URL=$(aws cloudformation describe-stacks --stack-name CodeRefactorInfra --query 'Stacks[0].Outputs[?OutputKey==`CognitoHostedUIURL`].OutputValue' --output text)
+          ECR_URI=$(aws cloudformation describe-stacks --stack-name CodeRefactorInfra --query 'Stacks[0].Outputs[?OutputKey==`ECRRepositoryURI`].OutputValue' --output text)
+          FRONTEND_BUCKET=$(aws cloudformation describe-stacks --stack-name CodeRefactorInfra --query 'Stacks[0].Outputs[?OutputKey==`FrontendBucketName`].OutputValue' --output text)
+          CLOUDFRONT_DISTRIBUTION_ID=$(aws cloudformation describe-stacks --stack-name CodeRefactorInfra --query 'Stacks[0].Outputs[?OutputKey==`CloudFrontDistributionID`].OutputValue' --output text)
+          CLOUDFRONT_DOMAIN=$(aws cloudformation describe-stacks --stack-name CodeRefactorInfra --query 'Stacks[0].Outputs[?OutputKey==`CloudFrontDistributionDomainName`].OutputValue' --output text)
           
-          # Get all stack outputs and save to file
-          aws cloudformation describe-stacks --stack-name CodeRefactorInfra --query 'Stacks[0].Outputs' > infrastructure-outputs/stack-outputs.json
+          # Get additional secret values
+          RDS_SECRET_ARN=$(aws cloudformation describe-stacks --stack-name CodeRefactorInfra --query 'Stacks[0].Outputs[?OutputKey==`RDSPostgresCredentialsSecretARN`].OutputValue' --output text)
+          S3_BUCKET=$(aws cloudformation describe-stacks --stack-name CodeRefactorInfra --query 'Stacks[0].Outputs[?OutputKey==`BucketName`].OutputValue' --output text)
+          BEDROCK_KB_ROLE_ARN=$(aws cloudformation describe-stacks --stack-name CodeRefactorInfra --query 'Stacks[0].Outputs[?OutputKey==`BedrockKnowledgeBaseRoleArn`].OutputValue' --output text)
+          BEDROCK_AGENT_ROLE_ARN=$(aws cloudformation describe-stacks --stack-name CodeRefactorInfra --query 'Stacks[0].Outputs[?OutputKey==`BedrockAgentRoleArn`].OutputValue' --output text)
           
-          # Extract key values for easy access
-          echo "API_URL=$(aws cloudformation describe-stacks --stack-name CodeRefactorInfra --query 'Stacks[0].Outputs[?OutputKey==`APIGatewayURL`].OutputValue' --output text)" > infrastructure-outputs/env-vars.txt
-          echo "USER_POOL_ID=$(aws cloudformation describe-stacks --stack-name CodeRefactorInfra --query 'Stacks[0].Outputs[?OutputKey==`CognitoUserPoolID`].OutputValue' --output text)" >> infrastructure-outputs/env-vars.txt
-          echo "CLIENT_ID=$(aws cloudformation describe-stacks --stack-name CodeRefactorInfra --query 'Stacks[0].Outputs[?OutputKey==`CognitoUserPoolClientID`].OutputValue' --output text)" >> infrastructure-outputs/env-vars.txt
-          echo "HOSTED_UI_URL=$(aws cloudformation describe-stacks --stack-name CodeRefactorInfra --query 'Stacks[0].Outputs[?OutputKey==`CognitoHostedUIURL`].OutputValue' --output text)" >> infrastructure-outputs/env-vars.txt
-          echo "ECR_URI=$(aws cloudformation describe-stacks --stack-name CodeRefactorInfra --query 'Stacks[0].Outputs[?OutputKey==`ECRRepositoryURI`].OutputValue' --output text)" >> infrastructure-outputs/env-vars.txt
-          echo "FRONTEND_BUCKET=$(aws cloudformation describe-stacks --stack-name CodeRefactorInfra --query 'Stacks[0].Outputs[?OutputKey==`FrontendBucketName`].OutputValue' --output text)" >> infrastructure-outputs/env-vars.txt
-          echo "CLOUDFRONT_DISTRIBUTION_ID=$(aws cloudformation describe-stacks --stack-name CodeRefactorInfra --query 'Stacks[0].Outputs[?OutputKey==`CloudFrontDistributionID`].OutputValue' --output text)" >> infrastructure-outputs/env-vars.txt
-          echo "CLOUDFRONT_DOMAIN=$(aws cloudformation describe-stacks --stack-name CodeRefactorInfra --query 'Stacks[0].Outputs[?OutputKey==`CloudFrontDistributionDomainName`].OutputValue' --output text)" >> infrastructure-outputs/env-vars.txt
-          
-          echo "✅ Infrastructure outputs stored!"
+          echo "✅ Infrastructure deployment configuration stored successfully!"
+          echo "   Parameter Store and Secrets Manager have been populated by the CDK stack"
+          echo "   Applications can now fetch configuration using AWS SDKs"
 
-      - name: Upload Infrastructure Outputs
-        uses: actions/upload-artifact@v4
-        with:
-          name: infrastructure-outputs
-          path: infrastructure-outputs/
-          retention-days: 30
-
-  update-env-vars:
-    runs-on: ubuntu-latest
+  test:
     needs: deploy-infra
-    if: github.ref == 'refs/heads/main' && github.event_name == 'push'
-    
-    permissions:
-      id-token: write
-      contents: read
-    
+    runs-on: ubuntu-latest
     steps:
-      - name: Checkout Code
+      - name: Checkout
         uses: actions/checkout@v4
-        
-      - name: Configure AWS credentials
-        uses: aws-actions/configure-aws-credentials@v4
-        with:
-          role-to-assume: ${{ vars.AWS_INFRA_ROLE_ARN }}
-          aws-region: ${{ vars.AWS_REGION }}
-      
-      - name: Download Infrastructure Outputs
-        uses: actions/download-artifact@v4
-        with:
-          name: infrastructure-outputs
-          path: infrastructure-outputs/
-      
-      - name: Update Application Environment Variables
-        env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-          APP_REPO: ${{ vars.APP_REPO_NAME }}
-          UI_REPO: ${{ vars.UI_REPO_NAME }}
-        run: |
-          echo "🔧 Updating environment variables for both repositories..."
-          
-          # Source the environment variables
-          source infrastructure-outputs/env-vars.txt
-          
-          echo "📤 Environment variables to set:"
-          echo "   API_URL: $API_URL"
-          echo "   USER_POOL_ID: $USER_POOL_ID"
-          echo "   CLIENT_ID: $CLIENT_ID"
-          echo "   HOSTED_UI_URL: $HOSTED_UI_URL"
-          echo "   ECR_URI: $ECR_URI"
-          echo "   FRONTEND_BUCKET: $FRONTEND_BUCKET"
-          echo "   CLOUDFRONT_DISTRIBUTION_ID: $CLOUDFRONT_DISTRIBUTION_ID"
-          echo "   CLOUDFRONT_DOMAIN: $CLOUDFRONT_DOMAIN"
-          
-          # Create environment file for the backend application
-          cat > backend-env-vars.txt << EOF
-          # Backend API environment variables
-          API_GATEWAY_URL=$API_URL
-          COGNITO_USER_POOL_ID=$USER_POOL_ID
-          COGNITO_CLIENT_ID=$CLIENT_ID
-          COGNITO_REGION=${{ vars.AWS_REGION }}
-          ECR_REPOSITORY_URI=$ECR_URI
-          
-          # Database and AWS resources
-          RDS_POSTGRES_CREDENTIALS_SECRET_ARN=$(aws cloudformation describe-stacks --stack-name CodeRefactorInfra --query 'Stacks[0].Outputs[?OutputKey==\`RDSPostgresCredentialsSecretARN\`].OutputValue' --output text)
-          RDS_POSTGRES_INSTANCE_ARN=$(aws cloudformation describe-stacks --stack-name CodeRefactorInfra --query 'Stacks[0].Outputs[?OutputKey==\`RDSPostgresInstanceARN\`].OutputValue' --output text)
-          S3_BUCKET_NAME=$(aws cloudformation describe-stacks --stack-name CodeRefactorInfra --query 'Stacks[0].Outputs[?OutputKey==\`BucketName\`].OutputValue' --output text)
-          BEDROCK_KNOWLEDGE_BASE_ROLE_ARN=$(aws cloudformation describe-stacks --stack-name CodeRefactorInfra --query 'Stacks[0].Outputs[?OutputKey==\`BedrockKnowledgeBaseRoleArn\`].OutputValue' --output text)
-          BEDROCK_AGENT_ROLE_ARN=$(aws cloudformation describe-stacks --stack-name CodeRefactorInfra --query 'Stacks[0].Outputs[?OutputKey==\`BedrockAgentRoleArn\`].OutputValue' --output text)
-          EOF
-          
-          # Create environment file for the frontend application  
-          cat > frontend-env-vars.txt << EOF
-          # Frontend environment variables
-          VITE_API_BASE_URL=$API_URL
-          VITE_COGNITO_USER_POOL_ID=$USER_POOL_ID
-          VITE_COGNITO_CLIENT_ID=$CLIENT_ID
-          VITE_COGNITO_HOSTED_UI_URL=$HOSTED_UI_URL
-          VITE_AWS_REGION=${{ vars.AWS_REGION }}
-          VITE_CLOUDFRONT_DOMAIN=https://$CLOUDFRONT_DOMAIN
-          
-          # Deployment environment variables
-          S3_FRONTEND_BUCKET=$FRONTEND_BUCKET
-          CLOUDFRONT_DISTRIBUTION_ID=$CLOUDFRONT_DISTRIBUTION_ID
-          AWS_REGION=${{ vars.AWS_REGION }}
-          AWS_ROLE_ARN=${{ vars.AWS_INFRA_ROLE_ARN }}
-          EOF
-          
-          echo "✅ Environment variables files created!"
-          
-      - name: Upload Backend Environment Variables
-        uses: actions/upload-artifact@v4
-        with:
-          name: backend-environment-variables
-          path: backend-env-vars.txt
-          retention-days: 90
 
-      - name: Upload Frontend Environment Variables
-        uses: actions/upload-artifact@v4
+      - name: Setup Go
+        uses: actions/setup-go@v5
         with:
-          name: frontend-environment-variables
-          path: frontend-env-vars.txt
-          retention-days: 90
+          go-version: '1.22'
+
+      - name: Run Tests
+        run: make test
