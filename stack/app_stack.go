@@ -186,16 +186,59 @@ func NewAppStack(scope constructs.Construct, id string, props *AppStackProps) *A
 		ExportName:  jsii.String("CodeRefactor-S3-Bucket-Name"),
 	})
 
-	awscdk.NewCfnOutput(resources.Stack, jsii.String("CognitoUserPoolId"), &awscdk.CfnOutputProps{
+	awscdk.NewCfnOutput(resources.Stack, jsii.String("CognitoUserPoolID"), &awscdk.CfnOutputProps{
 		Value:       jsii.String(cognito.UserPoolID),
 		Description: jsii.String("Cognito User Pool ID"),
 		ExportName:  jsii.String("CodeRefactor-Cognito-UserPool-ID"),
 	})
 
-	awscdk.NewCfnOutput(resources.Stack, jsii.String("CognitoClientId"), &awscdk.CfnOutputProps{
+	awscdk.NewCfnOutput(resources.Stack, jsii.String("CognitoUserPoolClientID"), &awscdk.CfnOutputProps{
 		Value:       jsii.String(cognito.ClientID),
 		Description: jsii.String("Cognito User Pool Client ID"),
 		ExportName:  jsii.String("CodeRefactor-Cognito-Client-ID"),
+	})
+
+	// Add missing outputs expected by CI workflow
+	awscdk.NewCfnOutput(resources.Stack, jsii.String("APIGatewayURL"), &awscdk.CfnOutputProps{
+		Value:       jsii.String(apigateway.URL),
+		Description: jsii.String("API Gateway URL"),
+		ExportName:  jsii.String("CodeRefactor-API-Gateway-URL"),
+	})
+
+	awscdk.NewCfnOutput(resources.Stack, jsii.String("CognitoHostedUIURL"), &awscdk.CfnOutputProps{
+		Value:       jsii.String(cognito.DomainURL),
+		Description: jsii.String("Cognito Hosted UI URL"),
+		ExportName:  jsii.String("CodeRefactor-Cognito-HostedUI-URL"),
+	})
+
+	awscdk.NewCfnOutput(resources.Stack, jsii.String("RDSPostgresCredentialsSecretARN"), &awscdk.CfnOutputProps{
+		Value:       database.CredentialsSecret.SecretArn(),
+		Description: jsii.String("RDS Postgres Credentials Secret ARN"),
+		ExportName:  jsii.String("CodeRefactor-RDS-Credentials-Secret-ARN"),
+	})
+
+	awscdk.NewCfnOutput(resources.Stack, jsii.String("RDSPostgresInstanceARN"), &awscdk.CfnOutputProps{
+		Value:       database.Cluster.ClusterArn(),
+		Description: jsii.String("RDS Postgres Cluster ARN"),
+		ExportName:  jsii.String("CodeRefactor-RDS-Cluster-ARN"),
+	})
+
+	awscdk.NewCfnOutput(resources.Stack, jsii.String("BucketName"), &awscdk.CfnOutputProps{
+		Value:       jsii.String(storage.Name),
+		Description: jsii.String("S3 Bucket Name for Bedrock Knowledge Base"),
+		ExportName:  jsii.String("CodeRefactor-S3-Bucket-Name"),
+	})
+
+	awscdk.NewCfnOutput(resources.Stack, jsii.String("BedrockKnowledgeBaseRoleArn"), &awscdk.CfnOutputProps{
+		Value:       bedrock.KnowledgeBaseRole.RoleArn(),
+		Description: jsii.String("Bedrock Knowledge Base Service Role ARN"),
+		ExportName:  jsii.String("CodeRefactor-Bedrock-KnowledgeBase-Role-ARN"),
+	})
+
+	awscdk.NewCfnOutput(resources.Stack, jsii.String("BedrockAgentRoleArn"), &awscdk.CfnOutputProps{
+		Value:       bedrock.AgentRole.RoleArn(),
+		Description: jsii.String("Bedrock Agent Service Role ARN"),
+		ExportName:  jsii.String("CodeRefactor-Bedrock-Agent-Role-ARN"),
 	})
 
 	// Frontend outputs
@@ -586,7 +629,10 @@ func createGitHubActionsRole(resources *Resources, frontend *FrontendResources) 
 					"token.actions.githubusercontent.com:aud": "sts.amazonaws.com",
 				},
 				"StringLike": map[string]interface{}{
-					"token.actions.githubusercontent.com:sub": "repo:kazemisoroush/code-refactoring-tool:*",
+					"token.actions.githubusercontent.com:sub": []interface{}{
+						"repo:kazemisoroush/code-refactoring-tool:*",
+						"repo:kazemisoroush/code-refactoring-ui:*",
+					},
 				},
 			},
 		),

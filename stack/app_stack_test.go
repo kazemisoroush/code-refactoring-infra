@@ -307,7 +307,7 @@ func TestAppStack_CreatesExpectedResources(t *testing.T) {
 			})
 		})
 
-		t.Run("creates GitHub Actions role with OIDC authentication", func(_ *testing.T) {
+		t.Run("creates GitHub Actions role with OIDC authentication for multiple repos", func(_ *testing.T) {
 			// Verify a role exists with AssumeRoleWithWebIdentity action (GitHub Actions OIDC)
 			template.HasResourceProperties(jsii.String("AWS::IAM::Role"), map[string]interface{}{
 				"AssumeRolePolicyDocument": map[string]interface{}{
@@ -315,6 +315,17 @@ func TestAppStack_CreatesExpectedResources(t *testing.T) {
 						map[string]interface{}{
 							"Action": "sts:AssumeRoleWithWebIdentity",
 							"Effect": "Allow",
+							"Condition": map[string]interface{}{
+								"StringEquals": map[string]interface{}{
+									"token.actions.githubusercontent.com:aud": "sts.amazonaws.com",
+								},
+								"StringLike": map[string]interface{}{
+									"token.actions.githubusercontent.com:sub": []interface{}{
+										"repo:kazemisoroush/code-refactoring-tool:*",
+										"repo:kazemisoroush/code-refactoring-ui:*",
+									},
+								},
+							},
 						},
 					},
 				},
