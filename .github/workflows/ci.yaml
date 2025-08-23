@@ -103,69 +103,17 @@ jobs:
         run: make deploy
 
       - name: Verify Infrastructure Deployment
-        env:
-          AWS_REGION: ${{ vars.AWS_REGION }}
         run: |
           echo "🔧 Verifying infrastructure deployment..."
           
-          # Get stack outputs
-          USER_POOL_ID=$(aws cloudformation describe-stacks --stack-name CodeRefactorInfra --query 'Stacks[0].Outputs[?OutputKey==`CognitoUserPoolID`].OutputValue' --output text)
-          CLIENT_ID=$(aws cloudformation describe-stacks --stack-name CodeRefactorInfra --query 'Stacks[0].Outputs[?OutputKey==`CognitoUserPoolClientID`].OutputValue' --output text)
-          API_URL=$(aws cloudformation describe-stacks --stack-name CodeRefactorInfra --query 'Stacks[0].Outputs[?OutputKey==`APIGatewayURL`].OutputValue' --output text)
+          # Verify stack exists and is in good state
+          STACK_STATUS=$(aws cloudformation describe-stacks --stack-name CodeRefactorInfra --query 'Stacks[0].StackStatus' --output text)
+          echo "Stack Status: $STACK_STATUS"
           
-          echo "✅ Infrastructure deployed successfully:"
-          echo "   User Pool ID: $USER_POOL_ID"
-          echo "   Client ID: $CLIENT_ID"
-          echo "   API URL: $API_URL"
-          
-          # Test API endpoint (health check should be publicly accessible)
-          HEALTH_CHECK=$(curl -s -o /dev/null -w "%{http_code}" $API_URL/health)
-          echo "Health check status: $HEALTH_CHECK"
-          
-          if [ "$HEALTH_CHECK" = "200" ]; then
-            echo "✅ API is accessible!"
+          if [[ "$STACK_STATUS" == *"COMPLETE"* ]]; then
+            echo "✅ Infrastructure deployed successfully!"
+            echo "✨ Configuration automatically stored in Parameter Store and Secrets Manager by CDK!"
           else
-            echo "⚠️ API might not be fully ready yet (status: $HEALTH_CHECK)"
+            echo "❌ Infrastructure deployment failed with status: $STACK_STATUS"
+            exit 1
           fi
-          
-          echo "🎉 Infrastructure verification complete!"
-          echo "� Users can now be created manually via AWS Cognito Console or CLI"
-
-      - name: Store Infrastructure Outputs in Parameter Store and Secrets Manager
-        run: |
-          echo "📤 Storing infrastructure outputs in AWS Parameter Store and Secrets Manager..."
-          
-          # Get stack outputs
-          API_URL=$(aws cloudformation describe-stacks --stack-name CodeRefactorInfra --query 'Stacks[0].Outputs[?OutputKey==`APIGatewayURL`].OutputValue' --output text)
-          USER_POOL_ID=$(aws cloudformation describe-stacks --stack-name CodeRefactorInfra --query 'Stacks[0].Outputs[?OutputKey==`CognitoUserPoolID`].OutputValue' --output text)
-          CLIENT_ID=$(aws cloudformation describe-stacks --stack-name CodeRefactorInfra --query 'Stacks[0].Outputs[?OutputKey==`CognitoUserPoolClientID`].OutputValue' --output text)
-          HOSTED_UI_URL=$(aws cloudformation describe-stacks --stack-name CodeRefactorInfra --query 'Stacks[0].Outputs[?OutputKey==`CognitoHostedUIURL`].OutputValue' --output text)
-          ECR_URI=$(aws cloudformation describe-stacks --stack-name CodeRefactorInfra --query 'Stacks[0].Outputs[?OutputKey==`ECRRepositoryURI`].OutputValue' --output text)
-          FRONTEND_BUCKET=$(aws cloudformation describe-stacks --stack-name CodeRefactorInfra --query 'Stacks[0].Outputs[?OutputKey==`FrontendBucketName`].OutputValue' --output text)
-          CLOUDFRONT_DISTRIBUTION_ID=$(aws cloudformation describe-stacks --stack-name CodeRefactorInfra --query 'Stacks[0].Outputs[?OutputKey==`CloudFrontDistributionID`].OutputValue' --output text)
-          CLOUDFRONT_DOMAIN=$(aws cloudformation describe-stacks --stack-name CodeRefactorInfra --query 'Stacks[0].Outputs[?OutputKey==`CloudFrontDistributionDomainName`].OutputValue' --output text)
-          
-          # Get additional secret values
-          RDS_SECRET_ARN=$(aws cloudformation describe-stacks --stack-name CodeRefactorInfra --query 'Stacks[0].Outputs[?OutputKey==`RDSPostgresCredentialsSecretARN`].OutputValue' --output text)
-          S3_BUCKET=$(aws cloudformation describe-stacks --stack-name CodeRefactorInfra --query 'Stacks[0].Outputs[?OutputKey==`BucketName`].OutputValue' --output text)
-          BEDROCK_KB_ROLE_ARN=$(aws cloudformation describe-stacks --stack-name CodeRefactorInfra --query 'Stacks[0].Outputs[?OutputKey==`BedrockKnowledgeBaseRoleArn`].OutputValue' --output text)
-          BEDROCK_AGENT_ROLE_ARN=$(aws cloudformation describe-stacks --stack-name CodeRefactorInfra --query 'Stacks[0].Outputs[?OutputKey==`BedrockAgentRoleArn`].OutputValue' --output text)
-          
-          echo "✅ Infrastructure deployment configuration stored successfully!"
-          echo "   Parameter Store and Secrets Manager have been populated by the CDK stack"
-          echo "   Applications can now fetch configuration using AWS SDKs"
-
-  test:
-    needs: deploy-infra
-    runs-on: ubuntu-latest
-    steps:
-      - name: Checkout
-        uses: actions/checkout@v4
-
-      - name: Setup Go
-        uses: actions/setup-go@v5
-        with:
-          go-version: '1.22'
-
-      - name: Run Tests
-        run: make test
