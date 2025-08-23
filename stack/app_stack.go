@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"path/filepath"
 	"runtime"
+	"strings"
 
 	"github.com/aws/aws-cdk-go/awscdk/v2"
 	"github.com/aws/aws-cdk-go/awscdk/v2/awsapigateway"
@@ -22,6 +23,7 @@ import (
 	"github.com/aws/aws-cdk-go/awscdk/v2/awss3"
 	"github.com/aws/aws-cdk-go/awscdk/v2/awss3assets"
 	"github.com/aws/aws-cdk-go/awscdk/v2/awssecretsmanager"
+	"github.com/aws/aws-cdk-go/awscdk/v2/awsssm"
 	"github.com/aws/constructs-go/constructs/v10"
 	"github.com/aws/jsii-runtime-go"
 	// NEW IMPORT for Custom Resources
@@ -160,6 +162,9 @@ func NewAppStack(scope constructs.Construct, id string, props *AppStackProps) *A
 	// Note: OIDC provider is created manually and exists in the account
 	githubRole := createGitHubActionsRole(resources, frontend)
 
+	// Store configuration in Parameter Store and Secrets Manager
+	createConfigurationStores(resources, storage, database, bedrock, cognito, apigateway, frontend, compute)
+
 	// Create CloudFormation outputs
 	awscdk.NewCfnOutput(resources.Stack, jsii.String("ECRRepositoryURI"), &awscdk.CfnOutputProps{
 		Value:       compute.EcrRepo.RepositoryUri(),
@@ -167,35 +172,59 @@ func NewAppStack(scope constructs.Construct, id string, props *AppStackProps) *A
 		ExportName:  jsii.String("CodeRefactor-ECR-Repository-URI"),
 	})
 
-	// Add outputs for the missing environment variables
-	awscdk.NewCfnOutput(resources.Stack, jsii.String("BedrockKnowledgeBaseRoleARN"), &awscdk.CfnOutputProps{
-		Value:       bedrock.KnowledgeBaseRole.RoleArn(),
-		Description: jsii.String("Bedrock Knowledge Base Service Role ARN"),
-		ExportName:  jsii.String("CodeRefactor-Bedrock-KnowledgeBase-Role-ARN"),
-	})
-
-	awscdk.NewCfnOutput(resources.Stack, jsii.String("BedrockAgentRoleARN"), &awscdk.CfnOutputProps{
-		Value:       bedrock.AgentRole.RoleArn(),
-		Description: jsii.String("Bedrock Agent Service Role ARN"),
-		ExportName:  jsii.String("CodeRefactor-Bedrock-Agent-Role-ARN"),
-	})
-
-	awscdk.NewCfnOutput(resources.Stack, jsii.String("S3BucketName"), &awscdk.CfnOutputProps{
-		Value:       jsii.String(storage.Name),
-		Description: jsii.String("S3 Bucket Name for Bedrock Knowledge Base"),
-		ExportName:  jsii.String("CodeRefactor-S3-Bucket-Name"),
-	})
-
-	awscdk.NewCfnOutput(resources.Stack, jsii.String("CognitoUserPoolId"), &awscdk.CfnOutputProps{
+	awscdk.NewCfnOutput(resources.Stack, jsii.String("CognitoUserPoolID"), &awscdk.CfnOutputProps{
 		Value:       jsii.String(cognito.UserPoolID),
 		Description: jsii.String("Cognito User Pool ID"),
 		ExportName:  jsii.String("CodeRefactor-Cognito-UserPool-ID"),
 	})
 
-	awscdk.NewCfnOutput(resources.Stack, jsii.String("CognitoClientId"), &awscdk.CfnOutputProps{
+	awscdk.NewCfnOutput(resources.Stack, jsii.String("CognitoUserPoolClientID"), &awscdk.CfnOutputProps{
 		Value:       jsii.String(cognito.ClientID),
 		Description: jsii.String("Cognito User Pool Client ID"),
 		ExportName:  jsii.String("CodeRefactor-Cognito-Client-ID"),
+	})
+
+	// Add missing outputs expected by CI workflow
+	awscdk.NewCfnOutput(resources.Stack, jsii.String("APIGatewayURL"), &awscdk.CfnOutputProps{
+		Value:       jsii.String(apigateway.URL),
+		Description: jsii.String("API Gateway URL"),
+		ExportName:  jsii.String("CodeRefactor-API-Gateway-URL"),
+	})
+
+	awscdk.NewCfnOutput(resources.Stack, jsii.String("CognitoHostedUIURL"), &awscdk.CfnOutputProps{
+		Value:       jsii.String(cognito.DomainURL),
+		Description: jsii.String("Cognito Hosted UI URL"),
+		ExportName:  jsii.String("CodeRefactor-Cognito-HostedUI-URL"),
+	})
+
+	awscdk.NewCfnOutput(resources.Stack, jsii.String("RDSPostgresCredentialsSecretARN"), &awscdk.CfnOutputProps{
+		Value:       database.CredentialsSecret.SecretArn(),
+		Description: jsii.String("RDS Postgres Credentials Secret ARN"),
+		ExportName:  jsii.String("CodeRefactor-RDS-Credentials-Secret-ARN"),
+	})
+
+	awscdk.NewCfnOutput(resources.Stack, jsii.String("RDSPostgresInstanceARN"), &awscdk.CfnOutputProps{
+		Value:       database.Cluster.ClusterArn(),
+		Description: jsii.String("RDS Postgres Cluster ARN"),
+		ExportName:  jsii.String("CodeRefactor-RDS-Cluster-ARN"),
+	})
+
+	awscdk.NewCfnOutput(resources.Stack, jsii.String("BucketName"), &awscdk.CfnOutputProps{
+		Value:       jsii.String(storage.Name),
+		Description: jsii.String("S3 Bucket Name for Bedrock Knowledge Base"),
+		ExportName:  jsii.String("CodeRefactor-S3-Bucket-Name"),
+	})
+
+	awscdk.NewCfnOutput(resources.Stack, jsii.String("BedrockKnowledgeBaseRoleArn"), &awscdk.CfnOutputProps{
+		Value:       bedrock.KnowledgeBaseRole.RoleArn(),
+		Description: jsii.String("Bedrock Knowledge Base Service Role ARN"),
+		ExportName:  jsii.String("CodeRefactor-Bedrock-KnowledgeBase-Role-ARN"),
+	})
+
+	awscdk.NewCfnOutput(resources.Stack, jsii.String("BedrockAgentRoleArn"), &awscdk.CfnOutputProps{
+		Value:       bedrock.AgentRole.RoleArn(),
+		Description: jsii.String("Bedrock Agent Service Role ARN"),
+		ExportName:  jsii.String("CodeRefactor-Bedrock-Agent-Role-ARN"),
 	})
 
 	// Frontend outputs
@@ -586,7 +615,10 @@ func createGitHubActionsRole(resources *Resources, frontend *FrontendResources) 
 					"token.actions.githubusercontent.com:aud": "sts.amazonaws.com",
 				},
 				"StringLike": map[string]interface{}{
-					"token.actions.githubusercontent.com:sub": "repo:kazemisoroush/code-refactoring-tool:*",
+					"token.actions.githubusercontent.com:sub": []interface{}{
+						"repo:kazemisoroush/code-refactoring-tool:*",
+						"repo:kazemisoroush/code-refactoring-ui:*",
+					},
 				},
 			},
 		),
@@ -637,6 +669,33 @@ func createGitHubActionsRole(resources *Resources, frontend *FrontendResources) 
 						},
 						Resources: &[]*string{
 							jsii.String(fmt.Sprintf("arn:aws:cloudfront::%s:distribution/%s", resources.Account, frontend.DistributionID)),
+						},
+					}),
+				},
+			}),
+			"ParameterStoreAccessPolicy": awsiam.NewPolicyDocument(&awsiam.PolicyDocumentProps{
+				Statements: &[]awsiam.PolicyStatement{
+					awsiam.NewPolicyStatement(&awsiam.PolicyStatementProps{
+						Actions: &[]*string{
+							jsii.String("ssm:GetParameter"),
+							jsii.String("ssm:GetParameters"),
+							jsii.String("ssm:GetParametersByPath"),
+						},
+						Resources: &[]*string{
+							jsii.String(fmt.Sprintf("arn:aws:ssm:%s:%s:parameter/code-refactor/*", resources.Region, resources.Account)),
+						},
+					}),
+				},
+			}),
+			"SecretsManagerAccessPolicy": awsiam.NewPolicyDocument(&awsiam.PolicyDocumentProps{
+				Statements: &[]awsiam.PolicyStatement{
+					awsiam.NewPolicyStatement(&awsiam.PolicyStatementProps{
+						Actions: &[]*string{
+							jsii.String("secretsmanager:GetSecretValue"),
+							jsii.String("secretsmanager:DescribeSecret"),
+						},
+						Resources: &[]*string{
+							jsii.String(fmt.Sprintf("arn:aws:secretsmanager:%s:%s:secret:/code-refactor/*", resources.Region, resources.Account)),
 						},
 					}),
 				},
@@ -699,6 +758,19 @@ func createComputeResources(resources *Resources, networking *NetworkingResource
 			"secretsmanager:DescribeSecret",
 		),
 		Resources: jsii.Strings("*"), // Will be scoped to specific secrets in production
+	}))
+
+	// Grant permissions to access Parameter Store for configuration
+	taskRole.AddToPolicy(awsiam.NewPolicyStatement(&awsiam.PolicyStatementProps{
+		Effect: awsiam.Effect_ALLOW,
+		Actions: jsii.Strings(
+			"ssm:GetParameter",
+			"ssm:GetParameters",
+			"ssm:GetParametersByPath",
+		),
+		Resources: jsii.Strings(
+			fmt.Sprintf("arn:aws:ssm:%s:%s:parameter/code-refactor/*", resources.Region, resources.Account),
+		),
 	}))
 
 	// Apply removal policy to ECS task role for clean deletion
@@ -1085,6 +1157,115 @@ func createFrontendResources(resources *Resources) *FrontendResources {
 		DistributionID:         *distribution.DistributionId(),
 		DistributionDomainName: *distribution.DistributionDomainName(),
 	}
+}
+
+// createConfigurationStores creates Parameter Store parameters and Secrets Manager secrets
+// for both backend and frontend applications
+func createConfigurationStores(resources *Resources, storage *StorageResources, database *DatabaseResources, bedrock *BedrockResources, cognito *CognitoResources, apigateway *APIGatewayResources, frontend *FrontendResources, compute *ComputeResources) {
+	// Create non-secret parameters in Parameter Store
+	createNonSecretParameters(resources, storage, database, cognito, apigateway, frontend, compute)
+
+	// Create secret parameters in Secrets Manager
+	createSecretParameters(resources, database, bedrock, cognito)
+}
+
+// createNonSecretParameters creates non-sensitive configuration parameters in Parameter Store
+func createNonSecretParameters(resources *Resources, storage *StorageResources, database *DatabaseResources, cognito *CognitoResources, apigateway *APIGatewayResources, frontend *FrontendResources, compute *ComputeResources) {
+	// Backend non-secret parameters
+	backendParams := map[string]string{
+		"/code-refactor/backend/api-gateway-url":                       apigateway.URL,
+		"/code-refactor/backend/cognito-user-pool-id":                  cognito.UserPoolID,
+		"/code-refactor/backend/cognito-region":                        resources.Region,
+		"/code-refactor/backend/s3-bucket-name":                        storage.Name,
+		"/code-refactor/backend/rds-cluster-arn":                       *database.Cluster.ClusterArn(),
+		"/code-refactor/backend/aws-region":                            resources.Region,
+		"/code-refactor/backend/aws-account-id":                        resources.Account,
+		"/code-refactor/backend/ecr-repository-uri":                    *compute.EcrRepo.RepositoryUri(),
+		"/code-refactor/backend/ecs-cluster-name":                      *compute.Cluster.ClusterName(),
+		"/code-refactor/backend/rds-postgres-schema-ensure-lambda-arn": *database.MigrationLambda.FunctionArn(),
+	}
+
+	// Frontend non-secret parameters
+	frontendParams := map[string]string{
+		"/code-refactor/frontend/api-base-url":          apigateway.URL,
+		"/code-refactor/frontend/cognito-user-pool-id":  cognito.UserPoolID,
+		"/code-refactor/frontend/cognito-hosted-ui-url": cognito.DomainURL,
+		"/code-refactor/frontend/aws-region":            resources.Region,
+		"/code-refactor/frontend/cloudfront-domain":     fmt.Sprintf("https://%s", frontend.DistributionDomainName),
+	}
+
+	// Deployment parameters
+	deploymentParams := map[string]string{
+		"/code-refactor/deployment/frontend-bucket":            frontend.BucketName,
+		"/code-refactor/deployment/cloudfront-distribution-id": frontend.DistributionID,
+		"/code-refactor/deployment/ecr-repository-uri":         *compute.EcrRepo.RepositoryUri(),
+		"/code-refactor/deployment/aws-region":                 resources.Region,
+	}
+
+	// Create all non-secret parameters
+	allParams := make(map[string]string)
+	for k, v := range backendParams {
+		allParams[k] = v
+	}
+	for k, v := range frontendParams {
+		allParams[k] = v
+	}
+	for k, v := range deploymentParams {
+		allParams[k] = v
+	}
+
+	for paramName, paramValue := range allParams {
+		// Create a clean construct ID from the parameter name
+		constructID := strings.ReplaceAll(strings.ReplaceAll(strings.TrimPrefix(paramName, "/code-refactor/"), "/", ""), "-", "")
+		param := awsssm.NewStringParameter(resources.Stack, jsii.String(fmt.Sprintf("Param%s", constructID)), &awsssm.StringParameterProps{
+			ParameterName: jsii.String(paramName),
+			StringValue:   jsii.String(paramValue),
+			Description:   jsii.String(fmt.Sprintf("Configuration parameter for %s", paramName)),
+			Tier:          awsssm.ParameterTier_STANDARD,
+		})
+		awscdk.Tags_Of(param).Add(jsii.String(DefaultResourceTagKey), jsii.String(DefaultResourceTagValue), nil)
+	}
+}
+
+// createSecretParameters creates sensitive configuration parameters in Secrets Manager
+func createSecretParameters(resources *Resources, database *DatabaseResources, bedrock *BedrockResources, cognito *CognitoResources) {
+	// Backend secrets
+	backendSecrets := map[string]interface{}{
+		"rds_credentials_secret_arn":      *database.CredentialsSecret.SecretArn(),
+		"bedrock_knowledge_base_role_arn": *bedrock.KnowledgeBaseRole.RoleArn(),
+		"bedrock_agent_role_arn":          *bedrock.AgentRole.RoleArn(),
+		"cognito_client_id":               cognito.ClientID,
+	}
+
+	// Create backend secrets in Secrets Manager
+	backendSecret := awssecretsmanager.NewSecret(resources.Stack, jsii.String("BackendSecrets"), &awssecretsmanager.SecretProps{
+		SecretName:  jsii.String("/code-refactor/backend/secrets"),
+		Description: jsii.String("Backend application secrets"),
+		SecretObjectValue: &map[string]awscdk.SecretValue{
+			"rds_credentials_secret_arn":      awscdk.SecretValue_UnsafePlainText(jsii.String(fmt.Sprintf("%v", backendSecrets["rds_credentials_secret_arn"]))),
+			"bedrock_knowledge_base_role_arn": awscdk.SecretValue_UnsafePlainText(jsii.String(fmt.Sprintf("%v", backendSecrets["bedrock_knowledge_base_role_arn"]))),
+			"bedrock_agent_role_arn":          awscdk.SecretValue_UnsafePlainText(jsii.String(fmt.Sprintf("%v", backendSecrets["bedrock_agent_role_arn"]))),
+			"cognito_client_id":               awscdk.SecretValue_UnsafePlainText(jsii.String(fmt.Sprintf("%v", backendSecrets["cognito_client_id"]))),
+		},
+		RemovalPolicy: awscdk.RemovalPolicy_DESTROY,
+	})
+	awscdk.Tags_Of(backendSecret).Add(jsii.String(DefaultResourceTagKey), jsii.String(DefaultResourceTagValue), nil)
+
+	// Frontend secrets (if any - typically frontend apps have fewer secrets)
+	frontendSecrets := map[string]interface{}{
+		"cognito_client_id": cognito.ClientID,
+	}
+
+	// Create frontend secrets in Secrets Manager
+	frontendSecret := awssecretsmanager.NewSecret(resources.Stack, jsii.String("FrontendSecrets"), &awssecretsmanager.SecretProps{
+		SecretName:  jsii.String("/code-refactor/frontend/secrets"),
+		Description: jsii.String("Frontend application secrets"),
+		SecretObjectValue: &map[string]awscdk.SecretValue{
+			"cognito_client_id": awscdk.SecretValue_UnsafePlainText(jsii.String(fmt.Sprintf("%v", frontendSecrets["cognito_client_id"]))),
+		},
+		RemovalPolicy: awscdk.RemovalPolicy_DESTROY,
+	})
+	awscdk.Tags_Of(frontendSecret).Add(jsii.String(DefaultResourceTagKey), jsii.String(DefaultResourceTagValue), nil)
 }
 
 func getThisFileDir() string {

@@ -96,137 +96,24 @@ jobs:
       - name: Configure AWS credentials for Infrastructure
         uses: aws-actions/configure-aws-credentials@v4
         with:
-          role-to-assume: ${{ secrets.AWS_INFRA_ROLE_ARN }}
-          aws-region: ${{ secrets.AWS_REGION }}
+          role-to-assume: ${{ vars.AWS_INFRA_ROLE_ARN }}
+          aws-region: ${{ vars.AWS_REGION }}
 
       - name: Deploy Infrastructure
         run: make deploy
 
       - name: Verify Infrastructure Deployment
-        env:
-          AWS_REGION: ${{ secrets.AWS_REGION }}
         run: |
           echo "🔧 Verifying infrastructure deployment..."
           
-          # Get stack outputs
-          USER_POOL_ID=$(aws cloudformation describe-stacks --stack-name CodeRefactorInfra --query 'Stacks[0].Outputs[?OutputKey==`CognitoUserPoolID`].OutputValue' --output text)
-          CLIENT_ID=$(aws cloudformation describe-stacks --stack-name CodeRefactorInfra --query 'Stacks[0].Outputs[?OutputKey==`CognitoUserPoolClientID`].OutputValue' --output text)
-          API_URL=$(aws cloudformation describe-stacks --stack-name CodeRefactorInfra --query 'Stacks[0].Outputs[?OutputKey==`APIGatewayURL`].OutputValue' --output text)
+          # Verify stack exists and is in good state
+          STACK_STATUS=$(aws cloudformation describe-stacks --stack-name CodeRefactorInfra --query 'Stacks[0].StackStatus' --output text)
+          echo "Stack Status: $STACK_STATUS"
           
-          echo "✅ Infrastructure deployed successfully:"
-          echo "   User Pool ID: $USER_POOL_ID"
-          echo "   Client ID: $CLIENT_ID"
-          echo "   API URL: $API_URL"
-          
-          # Test API endpoint (health check should be publicly accessible)
-          HEALTH_CHECK=$(curl -s -o /dev/null -w "%{http_code}" $API_URL/health)
-          echo "Health check status: $HEALTH_CHECK"
-          
-          if [ "$HEALTH_CHECK" = "200" ]; then
-            echo "✅ API is accessible!"
+          if [[ "$STACK_STATUS" == *"COMPLETE"* ]]; then
+            echo "✅ Infrastructure deployed successfully!"
+            echo "✨ Configuration automatically stored in Parameter Store and Secrets Manager by CDK!"
           else
-            echo "⚠️ API might not be fully ready yet (status: $HEALTH_CHECK)"
+            echo "❌ Infrastructure deployment failed with status: $STACK_STATUS"
+            exit 1
           fi
-          
-          echo "🎉 Infrastructure verification complete!"
-          echo "� Users can now be created manually via AWS Cognito Console or CLI"
-
-      - name: Store Infrastructure Outputs
-        run: |
-          echo "📤 Storing infrastructure outputs as artifacts..."
-          
-          # Create outputs directory
-          mkdir -p infrastructure-outputs
-          
-          # Get all stack outputs and save to file
-          aws cloudformation describe-stacks --stack-name CodeRefactorInfra --query 'Stacks[0].Outputs' > infrastructure-outputs/stack-outputs.json
-          
-          # Extract key values for easy access
-          echo "API_URL=$(aws cloudformation describe-stacks --stack-name CodeRefactorInfra --query 'Stacks[0].Outputs[?OutputKey==`APIGatewayURL`].OutputValue' --output text)" > infrastructure-outputs/env-vars.txt
-          echo "USER_POOL_ID=$(aws cloudformation describe-stacks --stack-name CodeRefactorInfra --query 'Stacks[0].Outputs[?OutputKey==`CognitoUserPoolID`].OutputValue' --output text)" >> infrastructure-outputs/env-vars.txt
-          echo "CLIENT_ID=$(aws cloudformation describe-stacks --stack-name CodeRefactorInfra --query 'Stacks[0].Outputs[?OutputKey==`CognitoUserPoolClientID`].OutputValue' --output text)" >> infrastructure-outputs/env-vars.txt
-          echo "HOSTED_UI_URL=$(aws cloudformation describe-stacks --stack-name CodeRefactorInfra --query 'Stacks[0].Outputs[?OutputKey==`CognitoHostedUIURL`].OutputValue' --output text)" >> infrastructure-outputs/env-vars.txt
-          echo "ECR_URI=$(aws cloudformation describe-stacks --stack-name CodeRefactorInfra --query 'Stacks[0].Outputs[?OutputKey==`ECRRepositoryURI`].OutputValue' --output text)" >> infrastructure-outputs/env-vars.txt
-          
-          echo "✅ Infrastructure outputs stored!"
-
-      - name: Upload Infrastructure Outputs
-        uses: actions/upload-artifact@v4
-        with:
-          name: infrastructure-outputs
-          path: infrastructure-outputs/
-          retention-days: 30
-
-  update-env-vars:
-    runs-on: ubuntu-latest
-    needs: deploy-infra
-    if: github.ref == 'refs/heads/main' && github.event_name == 'push'
-    
-    permissions:
-      id-token: write
-      contents: read
-    
-    steps:
-      - name: Checkout Code
-        uses: actions/checkout@v4
-        
-      - name: Configure AWS credentials
-        uses: aws-actions/configure-aws-credentials@v4
-        with:
-          role-to-assume: ${{ secrets.AWS_INFRA_ROLE_ARN }}
-          aws-region: ${{ secrets.AWS_REGION }}
-      
-      - name: Download Infrastructure Outputs
-        uses: actions/download-artifact@v4
-        with:
-          name: infrastructure-outputs
-          path: infrastructure-outputs/
-      
-      - name: Update Application Environment Variables
-        env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-          APP_REPO: ${{ secrets.APP_REPO_NAME || 'code-refactoring-tool' }}
-        run: |
-          echo "🔧 Updating environment variables in application repository..."
-          
-          # Source the environment variables
-          source infrastructure-outputs/env-vars.txt
-          
-          echo "📤 Environment variables to set:"
-          echo "   API_URL: $API_URL"
-          echo "   USER_POOL_ID: $USER_POOL_ID"
-          echo "   CLIENT_ID: $CLIENT_ID"
-          echo "   HOSTED_UI_URL: $HOSTED_UI_URL"
-          echo "   ECR_URI: $ECR_URI"
-          
-          # Create environment file for the application
-          cat > app-env-vars.txt << EOF
-          VITE_API_BASE_URL=$API_URL
-          VITE_COGNITO_USER_POOL_ID=$USER_POOL_ID
-          VITE_COGNITO_CLIENT_ID=$CLIENT_ID
-          VITE_COGNITO_HOSTED_UI_URL=$HOSTED_UI_URL
-          VITE_AWS_REGION=${{ secrets.AWS_REGION }}
-          
-          # Backend environment variables
-          API_GATEWAY_URL=$API_URL
-          COGNITO_USER_POOL_ID=$USER_POOL_ID
-          COGNITO_CLIENT_ID=$CLIENT_ID
-          COGNITO_REGION=${{ secrets.AWS_REGION }}
-          ECR_REPOSITORY_URI=$ECR_URI
-          
-          # Database and AWS resources
-          RDS_POSTGRES_CREDENTIALS_SECRET_ARN=$(aws cloudformation describe-stacks --stack-name CodeRefactorInfra --query 'Stacks[0].Outputs[?OutputKey==\`RDSPostgresCredentialsSecretARN\`].OutputValue' --output text)
-          RDS_POSTGRES_INSTANCE_ARN=$(aws cloudformation describe-stacks --stack-name CodeRefactorInfra --query 'Stacks[0].Outputs[?OutputKey==\`RDSPostgresInstanceARN\`].OutputValue' --output text)
-          S3_BUCKET_NAME=$(aws cloudformation describe-stacks --stack-name CodeRefactorInfra --query 'Stacks[0].Outputs[?OutputKey==\`BucketName\`].OutputValue' --output text)
-          BEDROCK_KNOWLEDGE_BASE_ROLE_ARN=$(aws cloudformation describe-stacks --stack-name CodeRefactorInfra --query 'Stacks[0].Outputs[?OutputKey==\`BedrockKnowledgeBaseRoleArn\`].OutputValue' --output text)
-          BEDROCK_AGENT_ROLE_ARN=$(aws cloudformation describe-stacks --stack-name CodeRefactorInfra --query 'Stacks[0].Outputs[?OutputKey==\`BedrockAgentRoleArn\`].OutputValue' --output text)
-          EOF
-          
-          echo "✅ Environment variables file created!"
-          
-      - name: Upload Application Environment Variables
-        uses: actions/upload-artifact@v4
-        with:
-          name: app-environment-variables
-          path: app-env-vars.txt
-          retention-days: 90
